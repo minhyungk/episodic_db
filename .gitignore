@@ -1,0 +1,38 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Test / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Episodic DB runtime data
+*.db
+*.db-wal
+*.db-shm
+blobs/
+.episodic_db_state.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets
+.env
