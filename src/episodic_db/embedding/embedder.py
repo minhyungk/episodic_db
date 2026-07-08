@@ -1,4 +1,4 @@
-"""Pluggable embedding API — OpenAI default, configurable model/dim."""
+"""Pluggable embedding API — local sentence-transformers by default."""
 
 import os
 from typing import Protocol
@@ -9,6 +9,34 @@ class Embedder(Protocol):
     dim: int
 
     def embed(self, texts: list[str]) -> list[list[float]]: ...
+
+
+class LocalEmbedder:
+    """Local embedding using sentence-transformers. No API key needed."""
+
+    _instances: dict[str, "LocalEmbedder"] = {}
+
+    def __init__(self, model: str = "all-MiniLM-L6-v2", dim: int = 384):
+        self.model = model
+        self.dim = dim
+        self._st_model = None
+
+    @classmethod
+    def get(cls, model: str = "all-MiniLM-L6-v2", dim: int = 384) -> "LocalEmbedder":
+        """Reuse loaded model across calls to avoid repeated loading."""
+        if model not in cls._instances:
+            cls._instances[model] = cls(model=model, dim=dim)
+        return cls._instances[model]
+
+    def _load(self):
+        if self._st_model is None:
+            from sentence_transformers import SentenceTransformer
+            self._st_model = SentenceTransformer(self.model)
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        self._load()
+        embeddings = self._st_model.encode(texts, normalize_embeddings=True)
+        return [vec.tolist() for vec in embeddings]
 
 
 class OpenAIEmbedder:
@@ -36,7 +64,7 @@ class OpenAIEmbedder:
 class NoOpEmbedder:
     """Placeholder embedder that returns zero vectors (for testing without API)."""
 
-    def __init__(self, dim: int = 1536):
+    def __init__(self, dim: int = 384):
         self.model = "noop"
         self.dim = dim
 

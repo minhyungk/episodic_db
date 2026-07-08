@@ -21,22 +21,14 @@ def create_settings(
 ) -> Path:
     """Create a settings.json with episodic-db hooks registered.
 
+    The hook command is a bare python invocation — env vars (EPISODIC_DB_ACTIVE,
+    EPISODIC_DB_PATH) must be set in the parent process so they propagate to
+    Claude Code and then to the hook subprocess.
+
     Returns the path to the written settings file.
     """
     python_exe = sys.executable
     handler_cmd = f"{python_exe} -m episodic_db.capture.hook_handler"
-
-    env_vars = {
-        "EPISODIC_DB_ACTIVE": "1",
-        "EPISODIC_DB_PATH": str(db_path),
-    }
-
-    if proxy_port:
-        env_vars["EPISODIC_DB_PROXY_PORT"] = str(proxy_port)
-        env_vars["EPISODIC_DB_PROXY_MODE"] = proxy_mode
-
-    env_prefix = " ".join(f"{k}={v}" for k, v in env_vars.items())
-    full_cmd = f"{env_prefix} {handler_cmd}"
 
     hooks = {}
     for event in HOOK_EVENTS:
@@ -46,7 +38,7 @@ def create_settings(
                 "hooks": [
                     {
                         "type": "command",
-                        "command": full_cmd,
+                        "command": handler_cmd,
                         "timeout": timeout,
                     }
                 ]

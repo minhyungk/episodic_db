@@ -30,9 +30,9 @@ class WasteThresholds:
 
 @dataclass
 class EmbeddingConfig:
-    model: str = "text-embedding-3-small"
-    dim: int = 1536
-    api_key_env: str = "OPENAI_API_KEY"
+    model: str = "BAAI/bge-small-en-v1.5"
+    dim: int = 384
+    backend: str = "local"  # "local" or "openai"
 
 
 @dataclass

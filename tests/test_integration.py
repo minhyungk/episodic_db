@@ -120,8 +120,10 @@ def test_all_contributed_no_episode(db, config):
     assemble_episodes(db, session_id, config)
 
     episodes = get_episodes_by_session(conn, session_id)
-    # All calls contributed, so no wasteful episode should be created
-    assert len(episodes) == 0
+    # All calls contributed — episode is created but marked as productive
+    assert len(episodes) == 1
+    assert episodes[0]["waste_type"] == "productive"
+    assert episodes[0]["is_wasteful"] == 0
 
 
 def test_blob_store(config):

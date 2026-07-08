@@ -12,7 +12,7 @@ import numpy as np
 from episodic_db.store.db import Database
 from episodic_db.config import EmbeddingConfig
 from .serializer import serialize_signature
-from .embedder import Embedder, OpenAIEmbedder
+from .embedder import Embedder, LocalEmbedder
 
 
 def _vector_to_blob(vec: list[float]) -> bytes:
@@ -27,7 +27,7 @@ class EpisodeIndexer:
     def __init__(self, db: Database, config: EmbeddingConfig, embedder: Embedder | None = None):
         self.db = db
         self.config = config
-        self.embedder = embedder or OpenAIEmbedder(model=config.model, dim=config.dim)
+        self.embedder = embedder or LocalEmbedder.get(model=config.model, dim=config.dim)
 
     def embed_episodes(self, session_id: str | None = None):
         """Generate embeddings for episodes that don't have them yet."""
@@ -35,11 +35,11 @@ class EpisodeIndexer:
 
         if session_id:
             cur = conn.execute(
-                "SELECT * FROM episodes WHERE session_id = ? AND embedding_text IS NULL",
+                "SELECT * FROM episodes WHERE session_id = ? AND embedding IS NULL",
                 (session_id,),
             )
         else:
-            cur = conn.execute("SELECT * FROM episodes WHERE embedding_text IS NULL")
+            cur = conn.execute("SELECT * FROM episodes WHERE embedding IS NULL")
 
         episodes = [dict(row) for row in cur.fetchall()]
         if not episodes:
