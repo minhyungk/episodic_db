@@ -3,10 +3,11 @@
 import json
 
 
-def serialize_signature(episode: dict) -> str:
+def serialize_signature(episode: dict, tool_calls: list[dict] | None = None) -> str:
     """Serialize semantic facets into a fixed-order text string for embedding.
 
-    Only semantic facets are included (no numeric metrics/costs).
+    Includes: waste_type, outcome, lang, paths, grep terms, changed symbols,
+    error signature, and a sample of normalized tool inputs for context.
     """
     parts = []
 
@@ -48,5 +49,26 @@ def serialize_signature(episode: dict) -> str:
 
     if episode.get("error_signature"):
         parts.append(f"err({episode['error_signature']})")
+
+    # Add normalized_input context from tool calls
+    if tool_calls:
+        wasted_member_ids = episode.get("wasted_member_ids", [])
+        if isinstance(wasted_member_ids, str):
+            wasted_member_ids = json.loads(wasted_member_ids)
+
+        # Sample up to 10 normalized inputs from wasteful calls
+        sample_inputs = []
+        for tc in tool_calls:
+            if tc.get("tool_use_id") in wasted_member_ids and tc.get("normalized_input"):
+                norm = tc["normalized_input"]
+                # Strip long paths for brevity
+                if norm.startswith(("Read ", "Write ", "Edit ")):
+                    norm = norm.split("/")[-1] if "/" in norm else norm
+                sample_inputs.append(norm)
+                if len(sample_inputs) >= 10:
+                    break
+
+        if sample_inputs:
+            parts.append(f"actions({'; '.join(sample_inputs[:10])})")
 
     return " | ".join(parts)

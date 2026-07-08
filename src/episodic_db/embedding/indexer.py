@@ -45,10 +45,26 @@ class EpisodeIndexer:
         if not episodes:
             return
 
+        # Fetch tool_calls for each episode
         texts = []
         episode_ids = []
         for ep in episodes:
-            text = serialize_signature(ep)
+            # Get tool calls for this episode
+            tool_calls = []
+            if ep.get("wasted_member_ids"):
+                import json
+                member_ids = ep["wasted_member_ids"]
+                if isinstance(member_ids, str):
+                    member_ids = json.loads(member_ids)
+                if member_ids:
+                    placeholders = ",".join(["?"] * len(member_ids))
+                    tc_cur = conn.execute(
+                        f"SELECT tool_use_id, normalized_input FROM tool_calls WHERE tool_use_id IN ({placeholders})",
+                        member_ids,
+                    )
+                    tool_calls = [dict(r) for r in tc_cur.fetchall()]
+
+            text = serialize_signature(ep, tool_calls)
             texts.append(text)
             episode_ids.append(ep["episode_id"])
 

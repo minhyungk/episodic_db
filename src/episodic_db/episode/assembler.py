@@ -122,7 +122,7 @@ def assemble_episodes(db: Database, session_id: str, config: Config):
 
         insert_episode(conn, episode_data)
 
-        _embed_episode(conn, episode_data, config)
+        _embed_episode(conn, episode_data, segment, config)
 
         for tid in member_ids:
             conn.execute(
@@ -132,9 +132,9 @@ def assemble_episodes(db: Database, session_id: str, config: Config):
         conn.commit()
 
 
-def _embed_episode(conn, episode_data: dict, config: Config):
+def _embed_episode(conn, episode_data: dict, tool_calls: list[dict], config: Config):
     """Embed episode inline using local model. Falls back to text-only on failure."""
-    text = serialize_signature(episode_data)
+    text = serialize_signature(episode_data, tool_calls)
 
     try:
         from ..embedding.embedder import LocalEmbedder, OpenAIEmbedder
