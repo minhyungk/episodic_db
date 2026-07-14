@@ -65,9 +65,9 @@ Please identify and fix the bug. Apply the fix directly to the repository files.
 
         repo_url = f"https://github.com/{self.repo}.git"
         clone_result = subprocess.run(
-            ["git", "clone", repo_url, str(self._work_dir)],
+            ["git", "clone", "--no-checkout", "--filter=blob:none", repo_url, str(self._work_dir)],
             capture_output=True,
-            timeout=300,
+            timeout=600,
         )
         if clone_result.returncode != 0:
             raise RuntimeError(f"git clone failed: {clone_result.stderr.decode()}")
@@ -76,7 +76,7 @@ Please identify and fix the bug. Apply the fix directly to the repository files.
             ["git", "checkout", self.base_commit],
             cwd=str(self._work_dir),
             capture_output=True,
-            timeout=30,
+            timeout=120,
         )
         if checkout_result.returncode != 0:
             raise RuntimeError(

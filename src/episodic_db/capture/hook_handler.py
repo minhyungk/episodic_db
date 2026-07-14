@@ -94,6 +94,7 @@ def handle_pre_tool_use(payload: dict, db: Database, config: Config):
     seq = _get_seq(db.conn, session_id)
     input_hash = _hash_input(tool_input)
     normalized = _normalize_input(tool_name, tool_input)
+    tool_input_json = json.dumps(tool_input) if tool_input else None
 
     insert_tool_call(
         db.conn,
@@ -103,6 +104,7 @@ def handle_pre_tool_use(payload: dict, db: Database, config: Config):
         tool_name=tool_name,
         input_hash=input_hash,
         normalized_input=normalized,
+        tool_input_json=tool_input_json,
     )
 
     mode = "WROTE" if tool_name in ("Write", "Edit") else "READ"
@@ -114,9 +116,18 @@ def handle_pre_tool_use(payload: dict, db: Database, config: Config):
 
 
 def handle_post_tool_use(payload: dict, db: Database, config: Config):
+    debug_log = os.environ.get("EPISODIC_DB_DEBUG_LOG")
+    if debug_log:
+        with open(debug_log, "a") as f:
+            f.write(f"PostToolUse keys: {list(payload.keys())}\n")
+            tool_resp = payload.get("tool_response", "")
+            f.write(f"  tool_response type={type(tool_resp).__name__} len={len(str(tool_resp)[:200])}\n")
+            if isinstance(tool_resp, dict):
+                f.write(f"  tool_response keys: {list(tool_resp.keys())}\n")
+
     session_id = _resolve_session_id(payload)
     tool_use_id = payload.get("tool_use_id", "")
-    tool_output = payload.get("tool_output", "")
+    tool_output = payload.get("tool_response", "") or payload.get("tool_result", "") or payload.get("tool_output", "")
 
     if not tool_use_id:
         return

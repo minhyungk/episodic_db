@@ -1,6 +1,7 @@
 """API proxy server — intercepts Claude API traffic for token capture."""
 
 import json
+import re
 import ssl
 import time
 
@@ -12,6 +13,12 @@ from .sse_parser import ReconstructedResponse, accumulate_response
 from .port_utils import find_available_port
 from .token_bridge import TokenBridge
 from episodic_db.store.db import Database
+
+
+def _strip_system_reminders(text: str) -> str:
+    """Remove <system-reminder>...</system-reminder> blocks from user message."""
+    stripped = re.sub(r"<system-reminder>.*?</system-reminder>\s*", "", text, flags=re.DOTALL)
+    return stripped.strip()
 
 
 class ProxyServer:
@@ -74,11 +81,42 @@ class ProxyServer:
             return response.model or request_data.get("model", "unknown")
         return response.get("model", request_data.get("model", "unknown"))
 
+    def _extract_assistant_text(self, response: ReconstructedResponse | dict) -> str:
+        if isinstance(response, ReconstructedResponse):
+            return response.assistant_text
+        blocks = response.get("content", [])
+        return "".join(
+            b.get("text", "") for b in blocks
+            if isinstance(b, dict) and b.get("type") == "text"
+        )
+
+    def _extract_user_message(self, request_data: dict) -> str:
+        """Extract the last user message, stripping system-reminder tags."""
+        messages = request_data.get("messages", [])
+        for msg in reversed(messages):
+            if msg.get("role") != "user":
+                continue
+            content = msg.get("content", "")
+            if isinstance(content, str):
+                text = content
+            elif isinstance(content, list):
+                parts = []
+                for block in content:
+                    if isinstance(block, dict) and block.get("type") == "text":
+                        parts.append(block.get("text", ""))
+                text = "\n".join(parts)
+            else:
+                continue
+            return _strip_system_reminders(text)
+        return ""
+
     async def _log_call(self, session_id: str, request_data: dict, response, latency_ms: float, timestamp: str):
         call_index = self._next_call_index(session_id)
         tool_use_ids = self._extract_tool_use_ids(response)
         usage = self._extract_usage(response)
         model = self._extract_model(response, request_data)
+        assistant_text = self._extract_assistant_text(response)
+        user_message = self._extract_user_message(request_data)
 
         tokens = {
             "input_tokens": usage.get("input_tokens", 0),
@@ -95,6 +133,8 @@ class ProxyServer:
             tool_use_ids=tool_use_ids,
             latency_ms=latency_ms,
             timestamp=timestamp,
+            assistant_text=assistant_text,
+            user_message=user_message,
         )
 
     async def handle_messages(self, request: web.Request) -> web.Response | web.StreamResponse:

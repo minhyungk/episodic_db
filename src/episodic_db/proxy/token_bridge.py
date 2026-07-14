@@ -26,17 +26,22 @@ class TokenBridge:
         tool_use_ids: list[str],
         latency_ms: float,
         timestamp: str,
+        assistant_text: str = "",
+        user_message: str = "",
     ):
         cost = calculate_cost(model, tokens)
         self.db.conn.execute(
             """INSERT OR REPLACE INTO proxy_calls
                (call_index, session_id, timestamp, model, tool_use_ids,
+                user_message, assistant_text,
                 input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
                 total_cost, latency_ms)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 call_index, session_id, timestamp, model,
                 json.dumps(tool_use_ids),
+                user_message or None,
+                assistant_text or None,
                 tokens.get("input_tokens", 0),
                 tokens.get("output_tokens", 0),
                 tokens.get("cache_creation_input_tokens", 0),

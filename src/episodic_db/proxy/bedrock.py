@@ -1,13 +1,17 @@
-"""AWS Bedrock proxy — passthrough auth, same token capture logic."""
+"""AWS Bedrock proxy — re-signs requests with SigV4, captures token data."""
 
 import json
 import os
+import re
 import ssl
 import time
-
 import aiohttp
 import certifi
 from aiohttp import web
+from botocore.auth import SigV4Auth
+from botocore.awsrequest import AWSRequest
+from botocore.credentials import Credentials
+from botocore.session import Session as BotocoreSession
 
 from .sse_parser import accumulate_response
 from .port_utils import find_available_port
@@ -27,6 +31,7 @@ class BedrockProxyServer:
         self.current_session_id = "default"
         self.call_counters: dict[str, int] = {}
         self._client_session: aiohttp.ClientSession | None = None
+        self._botocore_session = BotocoreSession()
 
     def _next_call_index(self, session_id: str) -> int:
         self.call_counters.setdefault(session_id, 0)
@@ -46,6 +51,28 @@ class BedrockProxyServer:
             region = os.environ.get("AWS_REGION", os.environ.get("AWS_DEFAULT_REGION", "us-east-1"))
             url = f"https://bedrock-runtime.{region}.amazonaws.com"
         return url
+
+    def _get_region(self) -> str:
+        return os.environ.get("AWS_REGION", os.environ.get("AWS_DEFAULT_REGION", "us-east-1"))
+
+    def _get_credentials(self) -> Credentials:
+        resolver = self._botocore_session.get_component("credential_provider")
+        creds = resolver.load_credentials()
+        if creds is None:
+            raise RuntimeError("No AWS credentials found")
+        frozen = creds.get_frozen_credentials()
+        return frozen
+
+    def _sign_request(self, method: str, url: str, headers: dict, body: bytes) -> dict:
+        """Re-sign request with SigV4 for bedrock-runtime."""
+        creds = self._get_credentials()
+        region = self._get_region()
+
+        aws_request = AWSRequest(method=method, url=url, data=body, headers={
+            "Content-Type": headers.get("Content-Type", headers.get("content-type", "application/json")),
+        })
+        SigV4Auth(creds, "bedrock", region).add_auth(aws_request)
+        return dict(aws_request.headers)
 
     async def handle_control_session(self, request: web.Request) -> web.Response:
         data = await request.json()
@@ -76,13 +103,10 @@ class BedrockProxyServer:
         session_id = request.headers.get("X-Session-ID", self.current_session_id)
         model_id = self._extract_model_from_path(request.path)
 
-        headers = {
-            k: v for k, v in request.headers.items()
-            if k.lower() not in ("host", "content-length", "transfer-encoding")
-        }
-
         bedrock_url = self._get_bedrock_url()
         target_url = f"{bedrock_url}{request.path}"
+
+        headers = self._sign_request("POST", target_url, dict(request.headers), body)
         client = await self._get_client()
 
         if is_streaming:
@@ -190,17 +214,43 @@ class BedrockProxyServer:
                 headers=resp_headers,
             )
 
+    def _extract_user_message(self, request_data: dict) -> str:
+        """Extract the last user message, stripping system-reminder tags."""
+        messages = request_data.get("messages", [])
+        for msg in reversed(messages):
+            if msg.get("role") != "user":
+                continue
+            content = msg.get("content", "")
+            if isinstance(content, str):
+                text = content
+            elif isinstance(content, list):
+                parts = []
+                for block in content:
+                    if isinstance(block, dict) and block.get("type") == "text":
+                        parts.append(block.get("text", ""))
+                text = "\n".join(parts)
+            else:
+                continue
+            stripped = re.sub(r"<system-reminder>.*?</system-reminder>\s*", "", text, flags=re.DOTALL)
+            return stripped.strip()
+        return ""
+
     def _log_response(self, session_id, request_data, response, latency_ms, timestamp):
         if hasattr(response, "usage"):
-            # ReconstructedResponse from streaming
             usage = response.usage
             content = response.content_blocks
             model = response.model or request_data.get("model", "unknown")
+            assistant_text = response.assistant_text
         else:
-            # dict from non-streaming
             usage = response.get("usage", {})
             content = response.get("content", [])
             model = response.get("model", request_data.get("model", "unknown"))
+            assistant_text = "".join(
+                b.get("text", "") for b in content
+                if isinstance(b, dict) and b.get("type") == "text"
+            )
+
+        user_message = self._extract_user_message(request_data)
 
         tool_use_ids = [
             b["id"] for b in content
@@ -223,6 +273,8 @@ class BedrockProxyServer:
             tool_use_ids=tool_use_ids,
             latency_ms=latency_ms,
             timestamp=timestamp,
+            assistant_text=assistant_text,
+            user_message=user_message,
         )
 
     async def on_shutdown(self, app: web.Application):

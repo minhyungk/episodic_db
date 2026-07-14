@@ -154,7 +154,12 @@ def _embed_episode(conn, episode_data: dict, tool_calls: list[dict], config: Con
             (text, embedder.model, embedder.dim, vec_blob, episode_data["episode_id"]),
         )
         conn.commit()
-    except Exception:
+    except Exception as e:
+        import os
+        debug_log = os.environ.get("EPISODIC_DB_DEBUG_LOG")
+        if debug_log:
+            with open(debug_log, "a") as f:
+                f.write(f"_embed_episode FAILED for {episode_data['episode_id']}: {type(e).__name__}: {e}\n")
         conn.execute(
             "UPDATE episodes SET embedding_text = ? WHERE episode_id = ?",
             (text, episode_data["episode_id"]),

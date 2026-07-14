@@ -1,6 +1,6 @@
 """SQLite schema DDL for Episodic DB."""
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 4
 
 PRAGMAS = """
 PRAGMA journal_mode = WAL;
@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS tool_calls (
     timestamp TEXT NOT NULL,
     model TEXT,
     tool_name TEXT NOT NULL,
+    tool_input_json TEXT,
     input_hash TEXT,
     normalized_input TEXT,
     input_tokens INTEGER DEFAULT 0,
@@ -123,6 +124,8 @@ CREATE TABLE IF NOT EXISTS proxy_calls (
     timestamp TEXT,
     model TEXT,
     tool_use_ids TEXT,
+    user_message TEXT,
+    assistant_text TEXT,
     input_tokens INTEGER DEFAULT 0,
     output_tokens INTEGER DEFAULT 0,
     cache_creation_tokens INTEGER DEFAULT 0,

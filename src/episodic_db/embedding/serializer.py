@@ -1,6 +1,33 @@
 """Serialize episode signature facets into embedding source text."""
 
 import json
+import os
+
+
+def _to_relative_path(path: str) -> str:
+    """Strip absolute workspace prefixes, keep only repo-relative path."""
+    if not path:
+        return path
+    markers = ("/workspace/", "/swebench_workspaces/")
+    for marker in markers:
+        idx = path.find(marker)
+        if idx != -1:
+            remainder = path[idx + len(marker):]
+            # Skip the repo dir name (e.g. "django__django-11039/")
+            slash = remainder.find("/")
+            if slash != -1:
+                return remainder[slash + 1:]
+            return remainder
+    # Fallback: just use basename of deepest meaningful directory
+    # Strip common home/project prefixes
+    home = os.path.expanduser("~")
+    if path.startswith(home):
+        path = path[len(home):]
+    # Take last 3 path components at most
+    parts = path.strip("/").split("/")
+    if len(parts) > 3:
+        return "/".join(parts[-3:])
+    return "/".join(parts)
 
 
 def serialize_signature(episode: dict, tool_calls: list[dict] | None = None) -> str:
@@ -21,10 +48,10 @@ def serialize_signature(episode: dict, tool_calls: list[dict] | None = None) -> 
         parts.append(episode["lang"])
 
     if episode.get("path_prefix"):
-        parts.append(episode["path_prefix"])
+        parts.append(_to_relative_path(episode["path_prefix"]))
 
     if episode.get("converged_resource"):
-        parts.append(f"conv={episode['converged_resource']}")
+        parts.append(f"conv={_to_relative_path(episode['converged_resource'])}")
 
     grep_terms = episode.get("grep_terms")
     if grep_terms:
@@ -56,14 +83,17 @@ def serialize_signature(episode: dict, tool_calls: list[dict] | None = None) -> 
         if isinstance(wasted_member_ids, str):
             wasted_member_ids = json.loads(wasted_member_ids)
 
-        # Sample up to 10 normalized inputs from wasteful calls
         sample_inputs = []
         for tc in tool_calls:
             if tc.get("tool_use_id") in wasted_member_ids and tc.get("normalized_input"):
                 norm = tc["normalized_input"]
-                # Strip long paths for brevity
                 if norm.startswith(("Read ", "Write ", "Edit ")):
-                    norm = norm.split("/")[-1] if "/" in norm else norm
+                    # Keep tool prefix + relative path
+                    parts_split = norm.split(" ", 1)
+                    if len(parts_split) == 2:
+                        norm = f"{parts_split[0]} {_to_relative_path(parts_split[1])}"
+                elif norm.startswith("Bash: "):
+                    norm = norm[:150]
                 sample_inputs.append(norm)
                 if len(sample_inputs) >= 10:
                     break

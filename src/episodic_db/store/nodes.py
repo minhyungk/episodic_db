@@ -37,13 +37,14 @@ def insert_tool_call(
     tool_name: str,
     input_hash: str | None = None,
     normalized_input: str | None = None,
+    tool_input_json: str | None = None,
     model: str | None = None,
 ):
     conn.execute(
         """INSERT OR IGNORE INTO tool_calls
-           (tool_use_id, session_id, seq, timestamp, model, tool_name, input_hash, normalized_input)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-        (tool_use_id, session_id, seq, datetime.now(timezone.utc).isoformat(), model, tool_name, input_hash, normalized_input),
+           (tool_use_id, session_id, seq, timestamp, model, tool_name, tool_input_json, input_hash, normalized_input)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (tool_use_id, session_id, seq, datetime.now(timezone.utc).isoformat(), model, tool_name, tool_input_json, input_hash, normalized_input),
     )
     conn.commit()
 

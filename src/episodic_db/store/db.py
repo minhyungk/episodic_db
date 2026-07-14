@@ -34,6 +34,30 @@ class Database:
                 "INSERT INTO schema_version (version) VALUES (?)", (SCHEMA_VERSION,)
             )
             conn.commit()
+        else:
+            self._migrate(conn)
+
+    def _migrate(self, conn):
+        cur = conn.execute("SELECT MAX(version) FROM schema_version")
+        current = cur.fetchone()[0] or 1
+        if current < 2:
+            conn.execute("ALTER TABLE proxy_calls ADD COLUMN assistant_text TEXT")
+            conn.execute(
+                "INSERT OR REPLACE INTO schema_version (version) VALUES (?)", (2,)
+            )
+            conn.commit()
+        if current < 3:
+            conn.execute("ALTER TABLE proxy_calls ADD COLUMN user_message TEXT")
+            conn.execute(
+                "INSERT OR REPLACE INTO schema_version (version) VALUES (?)", (3,)
+            )
+            conn.commit()
+        if current < 4:
+            conn.execute("ALTER TABLE tool_calls ADD COLUMN tool_input_json TEXT")
+            conn.execute(
+                "INSERT OR REPLACE INTO schema_version (version) VALUES (?)", (4,)
+            )
+            conn.commit()
 
     def close(self):
         if self._conn:
