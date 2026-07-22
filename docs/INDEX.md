@@ -18,6 +18,7 @@
 - [schema.md](./schema.md) — episodes 테이블 필드 상세 (기존)
 - [waste_types.md](./waste_types.md) — 낭비 유형 분류 규칙 (기존)
 - [benchmarking.md](./benchmarking.md) — SWE-bench 벤치마크 시스템
+- [compression.md](./compression.md) — Trajectory 압축 (sLLM context window 적합화)
 
 ### 개발
 - [development_guide.md](./development_guide.md) — 테스트, 확장 포인트, DB 마이그레이션, 디버깅

@@ -111,3 +111,20 @@ Tool call chain을 **WROTE + CONTRIBUTED** 경계에서 분할:
 | `assistant_text` | TEXT | assistant 응답 텍스트 |
 | `user_message` | TEXT | 유저 메시지 (system-reminder 제거됨) |
 | `latency_ms` | REAL | API 응답 지연시간 |
+
+---
+
+## Waste Types (priority order)
+
+분류는 `classify_waste_type()` — 먼저 매칭되면 후순위는 체크하지 않음.
+
+| Type                 | 조건                                                                 | 의미                         |
+| -------------------- | -------------------------------------------------------------------- | ---------------------------- |
+| `repeated-loop`      | 같은 input_hash ≥3회 반복, 또는 ≥2회 + episode 내 call ≥20           | 동일 작업 반복 (루프에 빠짐) |
+| `expensive-failure`  | is_wasteful 플래그 call ≥3개                                         | 비용 높은 에러 연속 발생     |
+| `read-heavy`         | call ≥10 + read_output_token_ratio ≥0.60                             | 읽기만 반복, 산출물 없음     |
+| `futile-exploration` | (call ≥25 + new_info_rate <0.3 + edit 없음) 또는 futility_score >0.6 | 새 정보 없이 탐색만 지속     |
+| `productive`         | 위 조건 모두 미해당 (classifier → None)                              | 정상 작업 — waste 아님       |
+
+- Threshold 값은 `config.py`의 `WasteThresholds` dataclass에서 조정
+- `productive`는 classifier가 None을 반환할 때 assembler에서 부여하는 fallback label
