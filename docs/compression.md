@@ -233,31 +233,132 @@ Edit + score 4+ (핵심 실패 추론)만 남김.
 5. **일반 탐색** (score 1) — grep, read
 6. **노이즈** (score 0) — git log, ls, find → 가장 먼저 압축
 
-## API
+## Integration Guide
+
+### Input 형식
+
+`messages: list[dict]` — Claude API Messages 형식 그대로.
+
+```json
+[
+  {
+    "role": "user",
+    "content": [
+      {"type": "text", "text": "Fix the bug in power.py"}
+    ]
+  },
+  {
+    "role": "assistant",
+    "content": [
+      {"type": "text", "text": "I'll look at the printing code."},
+      {"type": "tool_use", "id": "toolu_abc123", "name": "Bash",
+       "input": {"command": "grep -n '_print_Pow' sympy/printing/pretty.py"}}
+    ]
+  },
+  {
+    "role": "user",
+    "content": [
+      {"type": "tool_result", "tool_use_id": "toolu_abc123",
+       "content": "1814:    def _print_Pow(self, e):\n1815:        ...(2000 chars)",
+       "is_error": false}
+    ]
+  }
+]
+```
+
+proxy_calls 테이블이나 세션 로그 파일에서 로드한 conversation messages를 그대로 넣으면 됨.
+
+### Output 형식
+
+`CompressedResult` dataclass:
+
+```python
+@dataclass
+class CompressedResult:
+    original_chars: int          # 원본 크기
+    compressed_chars: int        # 압축 후 크기
+    compressed_messages: list[dict]  # 압축된 메시지 (같은 dict 형식)
+    dropped_middle: int          # skeleton/제거된 메시지 수
+
+    @property
+    def ratio(self) -> float:    # compressed / original (0.0~1.0)
+```
+
+`compressed_messages`는 input과 동일한 `list[dict]` 형식. skeleton 처리된 메시지도 role/content 구조는 유지되므로 그대로 sLLM에 넣을 수 있음.
+
+### 압축 전후 비교
+
+```
+# 원본 메시지 (tool_result가 2000 chars):
+{"role": "user", "content": [
+  {"type": "tool_result", "tool_use_id": "toolu_abc",
+   "content": "/repo/sympy/printing/pretty.py\n/repo/sympy/core/power.py\n...(2000 chars)",
+   "is_error": false}
+]}
+
+# Pass 1 적용 후 (truncate):
+{"role": "user", "content": [
+  {"type": "tool_result", "tool_use_id": "toolu_abc",
+   "content": "/repo/sympy/printing/pretty.py\n/repo/sympy/core/power.py\n[TRUNCATED original_chars=2000]",
+   "is_error": false}
+]}
+
+# Skeleton 처리 후 (score 낮은 메시지):
+{"role": "user", "content": [
+  {"type": "text", "text": "[result: 2000 chars]"}
+]}
+```
+
+### 사용법
 
 ```python
 from episodic_db.compress import fit_to_budget, score_messages
 
-# 기본 사용 (keyword fallback)
-messages = load_from_db(session_id)
+# === 기본 사용 (DB 없이, keyword fallback) ===
+messages = load_conversation_from_somewhere()
 result = fit_to_budget(messages, max_tokens=32000)
 
-# DB 라벨 활용 (더 정확한 scoring)
+# sLLM에 주입
+inject_to_context(result.compressed_messages)
+
+
+# === DB 라벨 활용 (더 정확한 waste 기반 scoring) ===
 from episodic_db.store.db import Database
 db = Database(Path("episodic.db"))
 conn = db.connect()
-result = fit_to_budget(messages, max_tokens=32000, conn=conn, session_id="session_xyz")
 
-# 결과
-result.compressed_messages   # 압축된 메시지 리스트
-result.compressed_chars      # 압축 후 크기
-result.ratio                 # 압축률 (compressed / original)
-result.dropped_middle        # 스켈레톤/드롭된 메시지 수
+result = fit_to_budget(
+    messages,
+    max_tokens=32000,
+    conn=conn,                   # waste 라벨 조회용
+    session_id="session_xyz",    # 어떤 세션의 라벨을 볼지
+)
 
-# scoring만 따로 (디버깅/분석용)
+
+# === scoring만 따로 확인 (디버깅/분석) ===
 scores = score_messages(messages, conn=conn, session_id="session_xyz")
-# → [1, 0, 4, 3, 2, ...] 각 메시지의 학습 가치
+# → [1, 0, 4, 3, 2, 0, 0, 5, ...] 각 메시지의 학습 가치
+
+# 높은 점수 = 낭비/실패 관련 = 학습 가치 높음 = 마지막까지 보존
+# 낮은 점수 = 노이즈 = 먼저 skeleton/제거 대상
 ```
+
+### 파라미터
+
+| 파라미터 | 기본값 | 설명 |
+|----------|--------|------|
+| `messages` | (필수) | Claude API 형식 대화 메시지 리스트 |
+| `max_tokens` | 32000 | 목표 context window 크기 |
+| `head_messages` | 3 | 항상 보존할 첫 N개 메시지 (문제 정의) |
+| `preserve_failures` | True | 실패 정보 보존 여부 |
+| `conn` | None | SQLite connection (waste 라벨 조회용) |
+| `session_id` | None | 세션 ID (conn과 함께 사용) |
+
+### 의존성
+
+- 외부 패키지 없음 (`json`, `sqlite3`, `dataclasses`만 사용)
+- `compress.py` 단일 파일로 동작
+- DB 연결은 optional — 없으면 keyword fallback으로 scoring
 
 ## Claude Compaction과의 비교
 
