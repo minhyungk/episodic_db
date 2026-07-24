@@ -81,12 +81,26 @@ Tool call chain을 **WROTE + CONTRIBUTED** 경계에서 분할:
 
 ---
 
-## tool_calls 테이블 (참고)
+## sessions 테이블
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `session_id` | TEXT PK | 세션 고유 ID |
+| `started_at` | TEXT | 세션 시작 시각 (ISO 8601 UTC) |
+| `ended_at` | TEXT | 세션 종료 시각 |
+| `success` | INTEGER | 세션 성공 여부 (1/0) |
+| `total_tokens` | INTEGER | 세션 전체 토큰 합산 |
+| `total_cost` | REAL | 세션 전체 비용 (USD) |
+| `exec_env` | TEXT | 실행 환경 정보 |
+
+---
+
+## tool_calls 테이블
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `tool_use_id` | TEXT PK | Claude가 부여한 tool call 고유 ID |
-| `session_id` | TEXT | 소속 세션 |
+| `session_id` | TEXT FK | 소속 세션 |
 | `seq` | INTEGER | 세션 내 호출 순서 (0-based) |
 | `timestamp` | TEXT | 호출 시각 |
 | `model` | TEXT | 사용된 모델 |
@@ -94,23 +108,90 @@ Tool call chain을 **WROTE + CONTRIBUTED** 경계에서 분할:
 | `tool_input_json` | TEXT | tool input 전체 JSON (원본) |
 | `input_hash` | TEXT | normalized_input의 SHA256 (중복 감지용) |
 | `normalized_input` | TEXT | 정규화된 입력 요약 (100자 제한, 경로만 등) |
+| `input_tokens` | INTEGER | input token 수 (cache miss 분) |
+| `output_tokens` | INTEGER | 모델 output token 수 |
+| `cache_creation_tokens` | INTEGER | 이번 call에서 새로 캐시에 쓴 토큰 수 |
+| `cache_read_tokens` | INTEGER | 기존 캐시에서 읽은 토큰 수 |
+| `own_cost` | REAL | 이 call 자체 비용 (total_cost - carry_cost) |
+| `carry_cost` | REAL | 이전 컨텍스트 누적 비용 (cache_read 기반) |
+| `total_cost` | REAL | own_cost + carry_cost |
+| `latency_ms` | REAL | API 응답 지연시간 (ms) |
 | `contributed_to` | TEXT | `CONTRIBUTED` / `DID_NOT` (labeling 결과) |
+| `is_wasteful` | INTEGER | 1이면 waste로 판정된 call |
 | `episode_id` | TEXT | 소속 에피소드 ID |
+
+UNIQUE constraint: `(session_id, seq)`
 
 ---
 
-## proxy_calls 테이블 (참고)
+## results 테이블
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `session_id` | TEXT | 세션 ID |
+| `result_id` | INTEGER PK | 자동 증가 ID |
+| `tool_use_id` | TEXT FK | 소속 tool call ID |
+| `result_hash` | TEXT | 결과 내용의 해시 (중복 결과 감지용) |
+| `digest_handle` | TEXT | 외부 저장소 참조 핸들 |
+| `inline_content` | TEXT | 인라인 저장된 결과 내용 |
+| `model_visible_tokens` | INTEGER | 모델에 노출된 토큰 수 |
+| `is_error` | INTEGER | 1이면 에러 결과 |
+| `output_chars` | INTEGER | 결과 문자 수 |
+| `output_lines` | INTEGER | 결과 줄 수 |
+
+---
+
+## resources 테이블
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `resource_id` | TEXT PK | 리소스 고유 ID (파일 경로 등) |
+| `kind` | TEXT | 리소스 종류 (file, url 등) |
+| `first_seen` | TEXT | 최초 접근 시각 |
+
+---
+
+## proxy_calls 테이블
+
+| Field | Type | Description |
+|-------|------|-------------|
 | `call_index` | INTEGER | 세션 내 API call 순서 |
+| `session_id` | TEXT | 세션 ID |
+| `timestamp` | TEXT | API 호출 시각 |
 | `model` | TEXT | 호출된 모델 |
-| `input_tokens` / `output_tokens` | INTEGER | 토큰 사용량 |
 | `tool_use_ids` | TEXT (JSON) | 이 call에서 생성된 tool_use_id 리스트 |
-| `assistant_text` | TEXT | assistant 응답 텍스트 |
 | `user_message` | TEXT | 유저 메시지 (system-reminder 제거됨) |
-| `latency_ms` | REAL | API 응답 지연시간 |
+| `assistant_text` | TEXT | assistant 응답 텍스트 |
+| `input_tokens` | INTEGER | input token 수 |
+| `output_tokens` | INTEGER | output token 수 |
+| `cache_creation_tokens` | INTEGER | cache write token 수 |
+| `cache_read_tokens` | INTEGER | cache read token 수 |
+| `total_cost` | REAL | 이 API call의 전체 비용 (USD) |
+| `latency_ms` | REAL | API 응답 지연시간 (ms) |
+
+PRIMARY KEY: `(session_id, call_index)`
+
+---
+
+## edges_touches 테이블
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `tool_use_id` | TEXT FK | tool call ID |
+| `resource_id` | TEXT FK | 접근한 리소스 ID |
+| `mode` | TEXT | 접근 모드 (read, write 등) |
+| `valid_from` | TEXT | 유효 시작 시각 |
+| `valid_to` | TEXT | 유효 종료 시각 |
+
+PRIMARY KEY: `(tool_use_id, resource_id, mode)`
+
+---
+
+## edges_duplicate_of 테이블
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `tool_use_id` | TEXT PK | 중복 call의 ID |
+| `duplicate_of` | TEXT | 원본 call의 tool_use_id |
 
 ---
 
